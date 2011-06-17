@@ -12,7 +12,7 @@ import System
 
 patterns = map compile ["*.mp3"]
 
-data Metadata = Metadata {
+data MetaData = MetaData {
                   artist :: Maybe String
                 , title  :: Maybe String
                 , reliability :: Int
@@ -31,21 +31,21 @@ trim = let f = reverse . dropWhile isSpace in f . f
 
 
 -- Join metadata to improve results
-joinMetadata :: Metadata -> Metadata -> Metadata
-joinMetadata (Metadata a1 t1 r1) (Metadata a2 t2 r2)
-    | r1 > r2   = Metadata (a1 <|> a2) (t1 <|> t2) r1
-    | otherwise = Metadata (a2 <|> a1) (t2 <|> t1) r2
+joinMetaData :: MetaData -> MetaData -> MetaData
+joinMetaData (MetaData a1 t1 r1) (MetaData a2 t2 r2)
+    | r1 > r2   = MetaData (a1 <|> a2) (t1 <|> t2) r1
+    | otherwise = MetaData (a2 <|> a1) (t2 <|> t1) r2
 
 
--- Metadata is a monoid
-instance Monoid Metadata where
-  mempty = Metadata Nothing Nothing 0
-  mappend = joinMetadata
+-- MetaData is a monoid
+instance Monoid MetaData where
+  mempty = MetaData Nothing Nothing 0
+  mappend = joinMetaData
 
 
 -- Pretty print metadata
-prettyMeta :: Metadata -> String
-prettyMeta m@(Metadata artist title _) = joined <?> show m
+prettyMeta :: MetaData -> String
+prettyMeta m@(MetaData artist title _) = joined <?> show m
   where
     joined = joinStr " - " <$> unk artist <*> unk title
     joinStr sep a b = a ++ sep ++ b
@@ -53,8 +53,8 @@ prettyMeta m@(Metadata artist title _) = joined <?> show m
 
 
 -- Parse metadata from filename
-filenameMeta :: String -> Metadata
-filenameMeta s = Metadata artist title 1
+filenameMeta :: String -> MetaData
+filenameMeta s = MetaData artist title 1
   where
     dashSplit  = map trim $ splitOn "-" s
     stripMp3 s = case splitOn "." s of
@@ -69,12 +69,12 @@ filenameMeta s = Metadata artist title 1
 
 
 -- Parse metadata from id3
-id3Meta :: FilePath -> Metadata
+id3Meta :: FilePath -> MetaData
 id3Meta = undefined
 
 
 -- Get our data from many different sources
-getMeta :: FilePath -> Metadata
+getMeta :: FilePath -> MetaData
 getMeta file = mconcat $ map ($file) [id3Meta, filenameMeta]
 
 
