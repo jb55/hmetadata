@@ -10,19 +10,73 @@ import Data.Monoid
 import Data.Maybe
 import System
 
-patterns = map compile ["*.mp3"]
+-- Rated
+data Rated a = Rate Int a
+             | Junk
+             deriving (Show)
+
+instance Eq (Rated a) where
+  Junk == Junk = True
+  Junk == _    = True
+  (Rate r1 _) == (Rate r2 _) = r1 == r2
+
+instance Ord (Rated a) where
+  Junk `compare` Junk = EQ
+  Junk `compare` _    = LT
+  _    `compare` Junk = GT
+  (Rate r1 _) `compare` (Rate r2 _)
+    | r1 == r2  = EQ
+    | r1 <= r2  = LT
+    | otherwise = GT
+
+instance Functor Rated where
+  f `fmap` (Rate r a) = Rate r (f a)
+  f `fmap` Junk = Junk
+
+instance Applicative Rated where
+  (Rate r1 f) <*> (Rate r2 x) = Rate r2 (f x)
+  pure = Rate 0
+
+instance Alternative Rated where
+  Junk <|> Junk = Junk
+  Junk <|> q    = q
+  q    <|> Junk = q
+  q1   <|> q2   = q1 `max` q2
+  empty = Junk
+
+instance Monad Rated where
+  Junk >>= f = Junk
+  m1@(Rate r1 a) >>= f = let m2@(Rate r2 b) = f a in
+                         if r1 > r2 then (Rate r1 b) else m2
+  return = pure
+
+fromRated :: Rated a -> a
+fromRated (Rate r a) = a
+
+changeRating :: Rated a -> (Int -> Int) -> Rated a
+changeRating (Rate r a) f = Rate (f r) a
+
+setRating :: Rated a -> Int -> Rated a 
+setRating (Rate r a) i = Rate i a
+
+getRating :: Rated a -> Int
+getRating (Rate r _) = r
 
 data MetaData = MetaData {
-                  artist :: Maybe String
-                , title  :: Maybe String
-                , reliability :: Int
+                  artist :: Rated String
+                , title  :: Rated String
                 } deriving (Show)
+
+-- MetaData is a monoid
+instance Monoid MetaData where
+  (MetaData a1 t1) `mappend` (MetaData a2 t2) = MetaData (a1 <|> a2) (t1 <|> t2)
+  mempty = MetaData Junk Junk
 
 
 -- Utility functions
 infixr 2 <?>
-(<?>) :: Maybe a -> a -> a
-m1 <?> s = fromJust $ m1 <|> Just s
+(<?>) :: Rated a -> a -> a
+m1 <?> s = fromRated $ m1 <|> pure s
 
 fmap' :: (Functor f1, Functor f) => (a -> b) -> f (f1 a) -> f (f1 b)
 fmap' = fmap . fmap
@@ -30,47 +84,35 @@ fmap' = fmap . fmap
 trim = let f = reverse . dropWhile isSpace in f . f
 
 
--- Join metadata to improve results
-joinMetaData :: MetaData -> MetaData -> MetaData
-joinMetaData (MetaData a1 t1 r1) (MetaData a2 t2 r2)
-    | r1 > r2   = MetaData (a1 <|> a2) (t1 <|> t2) r1
-    | otherwise = MetaData (a2 <|> a1) (t2 <|> t1) r2
-
-
--- MetaData is a monoid
-instance Monoid MetaData where
-  mempty = MetaData Nothing Nothing 0
-  mappend = joinMetaData
-
-
 -- Pretty print metadata
 prettyMeta :: MetaData -> String
-prettyMeta m@(MetaData artist title _) = joined <?> show m
+prettyMeta m@(MetaData artist title) = joined <?> show m
   where
     joined = joinStr " - " <$> unk artist <*> unk title
     joinStr sep a b = a ++ sep ++ b
-    unk m = m <|> Just "Unknown"
+    unk m = m <|> pure "Unknown"
 
 
 -- Parse metadata from filename
 filenameMeta :: String -> MetaData
-filenameMeta s = MetaData artist title 1
+filenameMeta s = MetaData artist title
   where
+    rate = Rate 1
     dashSplit  = map trim $ splitOn "-" s
     stripMp3 s = case splitOn "." s of
-                   []       -> s
-                   _:[]     -> s
-                   a@(x:xs) -> intercalate "." . init $ a
+                   []   -> s
+                   _:[] -> s
+                   ss   -> intercalate "." . init $ ss
     (artist, title) = case dashSplit of
-                        []       -> (Nothing, Nothing)
-                        t:[]     -> (Nothing, Just . stripMp3 $ t)
-                        a:t:[]   -> (Just a, Just . stripMp3 $ t)
-                        a:t:rest -> (Just a, Just t)
+                        []       -> (Junk, Junk)
+                        t:[]     -> (Junk, rate . stripMp3 $ t)
+                        a:t:[]   -> (rate a, rate . stripMp3 $ t)
+                        a:t:rest -> (rate a, rate t)
 
 
 -- Parse metadata from id3
 id3Meta :: FilePath -> MetaData
-id3Meta = undefined
+id3Meta file = MetaData (Rate 4 "ArtistOverrideTest") (Rate 0 "nope")
 
 
 -- Get our data from many different sources
@@ -85,8 +127,9 @@ main = do
     []     -> print "usage: mp3 <path>"
     [path] -> go path
   where
+    patterns         = map compile ["*.mp3"]
     go    path       = join $ fmap (mapM_ printFile) (splitPaths . files $ path)
-    printFile        = print . prettyMeta . filenameMeta
+    printFile        = print . prettyMeta . getMeta
     files path       = fmap (head . fst) $ globDir patterns path
     splitPaths files = fmap' (snd . splitFileName) files
 
