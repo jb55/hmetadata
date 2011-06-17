@@ -6,6 +6,7 @@ import System.FilePath.Glob
 import System.FilePath.Posix
 import Control.Applicative
 import Control.Monad
+import Data.Monoid
 import Data.Maybe
 import System
 
@@ -31,20 +32,20 @@ trim = let f = reverse . dropWhile isSpace in f . f
 
 -- Join metadata to improve results
 joinMetadata :: Metadata -> Metadata -> Metadata
-joinMetadata (m1 a1 t1 r1) (m2 a2 t2 r2)
-    | r1 > r2   = Metadata (a1 <|> a2) (t1 <|> t2)
-    | otherwise = Metadata (a2 <|> a1) (t2 <|> t1)
+joinMetadata (Metadata a1 t1 r1) (Metadata a2 t2 r2)
+    | r1 > r2   = Metadata (a1 <|> a2) (t1 <|> t2) r1
+    | otherwise = Metadata (a2 <|> a1) (t2 <|> t1) r2
 
 
 -- Metadata is a monoid
 instance Monoid Metadata where
-  mempty = Metadata Nothing Nothing
+  mempty = Metadata Nothing Nothing 0
   mappend = joinMetadata
 
 
 -- Pretty print metadata
 prettyMeta :: Metadata -> String
-prettyMeta m@(Metadata artist title) = joined <?> show m
+prettyMeta m@(Metadata artist title _) = joined <?> show m
   where
     joined = joinStr " - " <$> unk artist <*> unk title
     joinStr sep a b = a ++ sep ++ b
