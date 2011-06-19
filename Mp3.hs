@@ -1,14 +1,17 @@
+{-# LANGUAGE OverloadedStrings #-}
 
 import Data.List.Split
-import Data.List (intercalate)
 import Data.Char (isSpace)
 import System.FilePath.Glob
 import System.FilePath.Posix
+import Data.List (intercalate)
 import Control.Applicative
 import Control.Monad
 import Data.Monoid
 import Data.Maybe
 import System
+
+import Debug.Trace
 
 -- Rated
 data Rated a = Rate Int a
@@ -94,25 +97,26 @@ prettyMeta m@(MetaData artist title) = joined <?> show m
 
 
 -- Parse metadata from filename
-filenameMeta :: String -> MetaData
+filenameMeta :: FilePath -> MetaData
 filenameMeta s = MetaData artist title
   where
     rate = Rate 1
-    dashSplit  = map trim $ splitOn "-" s
-    stripMp3 s = case splitOn "." s of
-                   []   -> s
-                   _:[] -> s
-                   ss   -> intercalate "." . init $ ss
+    fileName = snd . splitFileName $ s
+    dashSplit  = map trim $ splitOn "-" fileName
+    stripMp3 name = case splitOn "." name of
+                      []  -> name
+                      [_] -> name
+                      ss  -> intercalate "." . init $ ss
     (artist, title) = case dashSplit of
                         []       -> (Junk, Junk)
-                        t:[]     -> (Junk, rate . stripMp3 $ t)
-                        a:t:[]   -> (rate a, rate . stripMp3 $ t)
+                        [t]      -> (Junk, rate . stripMp3 $ t)
+                        [a, t]   -> (rate a, rate . stripMp3 $ t)
                         a:t:rest -> (rate a, rate t)
 
 
 -- Parse metadata from id3
 id3Meta :: FilePath -> MetaData
-id3Meta file = MetaData (Rate 4 "ArtistOverrideTest") (Rate 0 "nope")
+id3Meta file = mempty
 
 
 -- Get our data from many different sources
@@ -127,10 +131,9 @@ main = do
     []     -> print "usage: mp3 <path>"
     [path] -> go path
   where
-    patterns         = map compile ["*.mp3"]
-    go    path       = join $ fmap (mapM_ printFile) (splitPaths . files $ path)
-    printFile        = print . prettyMeta . getMeta
-    files path       = fmap (head . fst) $ globDir patterns path
-    splitPaths files = fmap' (snd . splitFileName) files
-
+    patterns = map compile ["*.mp3"]
+    go path = do
+      files <- head . fst <$> globDir patterns path
+      let metas = map getMeta files
+      mapM_ (print . prettyMeta) metas
 
