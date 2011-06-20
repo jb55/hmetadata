@@ -119,9 +119,9 @@ maybeToRated i Nothing  = Junk
 
 -- Convert an ID3Tag to MetaData
 tagToMeta :: Tag -> MetaData
-tagToMeta t = let rate = maybeToRated 10 in
-              MetaData (rate . getArtist $ t)
-                       (rate . getTitle $ t)
+tagToMeta t = let rate = (\f -> maybeToRated 10 . f $ t) in
+              MetaData (rate getArtist)
+                       (rate getTitle)
 
 -- Parse metadata from id3
 id3Meta :: FilePath -> IO MetaData
