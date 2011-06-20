@@ -6,8 +6,8 @@ import System.FilePath.Glob
 import System.FilePath.Posix
 import Data.List (intercalate)
 import Control.Applicative
-import Control.Monad
 import Control.Concurrent
+import Control.Monad
 import Data.Monoid
 import Data.Maybe
 import ID3.Simple
@@ -84,9 +84,6 @@ infixr 2 <?>
 (<?>) :: Rated a -> a -> a
 m1 <?> s = fromRated $ m1 <|> pure s
 
-fmap' :: (Functor f1, Functor f) => (a -> b) -> f (f1 a) -> f (f1 b)
-fmap' = fmap . fmap
-
 trim = let f = reverse . dropWhile isSpace in f . f
 
 
@@ -108,7 +105,7 @@ filenameMeta s = MetaData artist title
     dashSplit  = map trim $ splitOn "-" fileName
     stripMp3 name = case splitOn "." name of
                       []  -> name
-                      [_] -> name
+                      [s] -> name
                       ss  -> intercalate "." . init $ ss
     (artist, title) = case dashSplit of
                         []       -> (Junk, Junk)
@@ -128,16 +125,14 @@ tagToMeta t = let rate = maybeToRated 10 in
 
 -- Parse metadata from id3
 id3Meta :: FilePath -> IO MetaData
-id3Meta file = do
-  maybeTag <- readTag file
-  return $ case maybeTag of
-    Nothing -> mempty
-    Just t  -> tagToMeta t
-
+id3Meta file = readTag file >>= return . metaFromMaybeTag
+  where
+    metaFromMaybeTag Nothing  = mempty
+    metaFromMaybeTag (Just t) = tagToMeta t
 
 -- Get our data from many different sources
 getMeta :: [Cleaner] -> FilePath -> IO MetaData
-getMeta cleaners file = mconcat <$> (sequence $ map ($file) cleaners)
+getMeta cleaners file = mconcat <$> mapM ($file) cleaners
 
 -- Main!
 main = do
@@ -148,8 +143,9 @@ main = do
   where
     patterns = map compile ["*.mp3"]
     cleaners = [id3Meta, return . filenameMeta]
+    printMeta = print . prettyMeta
+
     go path = do
       files <- head . fst <$> globDir patterns path
-      metas <- sequence $ map (getMeta cleaners) files
-      mapM_ (print . prettyMeta) metas
+      mapM (getMeta cleaners) files >>= mapM_ printMeta
 
