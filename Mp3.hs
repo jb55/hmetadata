@@ -7,8 +7,10 @@ import System.FilePath.Posix
 import Data.List (intercalate)
 import Control.Applicative
 import Control.Monad
+import Control.Concurrent
 import Data.Monoid
 import Data.Maybe
+import ID3.Simple
 import System
 
 import Debug.Trace
@@ -59,7 +61,7 @@ fromRated (Rate r a) = a
 changeRating :: Rated a -> (Int -> Int) -> Rated a
 changeRating (Rate r a) f = Rate (f r) a
 
-setRating :: Rated a -> Int -> Rated a 
+setRating :: Rated a -> Int -> Rated a
 setRating (Rate r a) i = Rate i a
 
 getRating :: Rated a -> Int
@@ -70,11 +72,12 @@ data MetaData = MetaData {
                 , title  :: Rated String
                 } deriving (Show)
 
+type Cleaner = FilePath -> IO MetaData
+
 -- MetaData is a monoid
 instance Monoid MetaData where
   (MetaData a1 t1) `mappend` (MetaData a2 t2) = MetaData (a1 <|> a2) (t1 <|> t2)
   mempty = MetaData Junk Junk
-
 
 -- Utility functions
 infixr 2 <?>
@@ -113,16 +116,28 @@ filenameMeta s = MetaData artist title
                         [a, t]   -> (rate a, rate . stripMp3 $ t)
                         a:t:rest -> (rate a, rate t)
 
+maybeToRated :: Int -> Maybe a -> Rated a
+maybeToRated i (Just t) = Rate i t
+maybeToRated i Nothing  = Junk
+
+-- Convert an ID3Tag to MetaData
+tagToMeta :: Tag -> MetaData
+tagToMeta t = let rate = maybeToRated 10 in
+              MetaData (rate . getArtist $ t)
+                       (rate . getTitle $ t)
 
 -- Parse metadata from id3
-id3Meta :: FilePath -> MetaData
-id3Meta file = mempty
+id3Meta :: FilePath -> IO MetaData
+id3Meta file = do
+  maybeTag <- readTag file
+  return $ case maybeTag of
+    Nothing -> mempty
+    Just t  -> tagToMeta t
 
 
 -- Get our data from many different sources
-getMeta :: FilePath -> MetaData
-getMeta file = mconcat $ map ($file) [id3Meta, filenameMeta]
-
+getMeta :: [Cleaner] -> FilePath -> IO MetaData
+getMeta cleaners file = mconcat <$> (sequence $ map ($file) cleaners)
 
 -- Main!
 main = do
@@ -132,8 +147,9 @@ main = do
     [path] -> go path
   where
     patterns = map compile ["*.mp3"]
+    cleaners = [id3Meta, return . filenameMeta]
     go path = do
       files <- head . fst <$> globDir patterns path
-      let metas = map getMeta files
+      metas <- sequence $ map (getMeta cleaners) files
       mapM_ (print . prettyMeta) metas
 
