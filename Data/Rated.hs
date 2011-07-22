@@ -1,6 +1,7 @@
 
 module Data.Rated(
     Rated(Rate, Junk)
+  , fromRate
   , fromRated
   , changeRating
   , setRating
@@ -49,8 +50,11 @@ instance Monad Rated where
                          if r1 > r2 then (Rate r1 b) else m2
   return = pure
 
-fromRated :: Rated a -> a
-fromRated (Rate r a) = a
+fromRate :: Rated a -> a
+fromRate (Rate r a) = a
+
+fromRated :: a -> Rated a -> a
+fromRated x r = fromRate (r <|> pure x)
 
 changeRating :: Rated a -> (Int -> Int) -> Rated a
 changeRating (Rate r a) f = Rate (f r) a
